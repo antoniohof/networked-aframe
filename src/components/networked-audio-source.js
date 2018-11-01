@@ -3,7 +3,7 @@ var naf = require('../NafIndex');
 // @TODO if aframevr/aframe#3042 gets merged, this should just delegate to the aframe sound component
 AFRAME.registerComponent('networked-audio-source', {
   schema: {
-    positional: { default: true }
+    positional: { default: false }
   },
 
   init: function () {
@@ -39,9 +39,12 @@ AFRAME.registerComponent('networked-audio-source', {
         this.audioEl = new Audio();
         this.audioEl.setAttribute("autoplay", "autoplay");
         this.audioEl.setAttribute("playsinline", "playsinline");
+        this.audioEl.setAttribute("webkit-playsinline", "");
         this.audioEl.srcObject = newStream;
 
-        this.sound.setNodeSource(this.sound.context.createMediaStreamSource(newStream));
+        var soundSource = this.sound.context.createMediaStreamSource(newStream);
+        this.sound.setNodeSource(soundSource);
+        this.el.emit('sound-source-set', { soundSource });
       }
       this.stream = newStream;
     }

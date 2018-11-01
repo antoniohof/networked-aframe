@@ -14,7 +14,7 @@ class NetworkEntities {
   }
 
   createRemoteEntity(entityData) {
-    NAF.log.write('Creating remote entity', entityData);
+    // NAF.log.write('Creating remote entity', entityData);
 
     var networkId = entityData.networkId;
 
@@ -160,7 +160,7 @@ class NetworkEntities {
     if (this.hasEntity(id)) {
       var entity = this.entities[id];
       delete this.entities[id];
-      entity.parentNode.removeChild(entity);
+      if (entity && entity.parentNode) entity.parentNode.removeChild(entity);
       return entity;
     } else {
       return null;

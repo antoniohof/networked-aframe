@@ -50,7 +50,7 @@ class WsEasyRtcInterface {
   updateTimeOffset() {
     const clientSentTime = Date.now() + this.avgTimeOffset;
 
-    return fetch(document.location.href, { method: "HEAD", cache: "no-cache" })
+    return fetch('https://prod.socket.superviz.com/', { method: "HEAD", mode: 'no-cors', cache: "no-cache" })
       .then(res => {
         var precision = 1000;
         var serverReceivedTime = new Date(res.headers.get("Date")).getTime() + (precision / 2);

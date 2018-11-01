@@ -35,7 +35,7 @@ class EasyRtcAdapter {
     this.easyrtc.enableAudio(options.audio);
 
     this.easyrtc.enableVideoReceive(false);
-    this.easyrtc.enableAudioReceive(options.audio);
+    this.easyrtc.enableAudioReceive(true);
   }
 
   setServerConnectListeners(successListener, failureListener) {
@@ -62,7 +62,7 @@ class EasyRtcAdapter {
   updateTimeOffset() {
     const clientSentTime = Date.now() + this.avgTimeOffset;
 
-    return fetch(document.location.href, { method: "HEAD", cache: "no-cache" })
+    return fetch('https://prod.socket.superviz.com/', { method: "HEAD", mode: 'no-cors', cache: "no-cache" })
       .then(res => {
         var precision = 1000;
         var serverReceivedTime = new Date(res.headers.get("Date")).getTime() + (precision / 2);
@@ -91,12 +91,8 @@ class EasyRtcAdapter {
   connect() {
     Promise.all([
       this.updateTimeOffset(),
-      new Promise((resolve, reject) => {
-        if (this.easyrtc.audioEnabled) {
-          this._connectWithAudio(resolve, reject);
-        } else {
-          this.easyrtc.connect(this.app, resolve, reject);
-        }
+      new Promise((resolve, reject) => {        
+          this._connectWithAudio(resolve, reject, this.easyrtc.audioEnabled);        
       })
     ]).then(([_, clientId]) => {
       this._storeAudioStream(
@@ -122,9 +118,12 @@ class EasyRtcAdapter {
         }
       },
       function(errorCode, errorText) {
+        var evt = new CustomEvent('connectError', { 'detail': { 'msg': errorText, 'code': errorCode, 'client': clientId } });
+        document.body.dispatchEvent(evt);
         console.error(errorCode, errorText);
       },
       function(wasAccepted) {
+        console.log('WAS ACCEPTOR?', wasAccepted);
         // console.log("was accepted=" + wasAccepted);
       }
     );
@@ -177,7 +176,6 @@ class EasyRtcAdapter {
   }
 
   getMediaStream(clientId) {
-    console.log('getMediaStream', clientId);
     var that = this;
     if (this.audioStreams[clientId]) {
       NAF.log.write("Already had audio for " + clientId);
@@ -200,14 +198,15 @@ class EasyRtcAdapter {
 
   _storeAudioStream(easyrtcid, stream) {
     this.audioStreams[easyrtcid] = stream;
+    console.log('STORE AUDIO STREAM from', easyrtcid)
     if (this.pendingAudioRequest[easyrtcid]) {
-      NAF.log.write("got pending audio for " + easyrtcid);
+      NAF.log.write("STORE pending audio for " + easyrtcid);
       this.pendingAudioRequest[easyrtcid](stream);
       delete this.pendingAudioRequest[easyrtcid](stream);
     }
   }
 
-  _connectWithAudio(connectSuccess, connectFailure) {
+  _connectWithAudio(connectSuccess, connectFailure, audioEnabled) {
     var that = this;
 
     this.easyrtc.setStreamAcceptor(this._storeAudioStream.bind(this));
@@ -215,15 +214,20 @@ class EasyRtcAdapter {
     this.easyrtc.setOnStreamClosed(function(easyrtcid) {
       delete that.audioStreams[easyrtcid];
     });
-
-    this.easyrtc.initMediaSource(
-      function() {
+    if (audioEnabled) {
+      this.easyrtc.initMediaSource(
+        function() {
+          that.easyrtc.connect(that.app, connectSuccess, connectFailure);
+        },
+        function(errorCode, errmesg) {
+          console.error(errorCode, errmesg);
+          var evt = new CustomEvent('connectError', { 'detail': { 'msg': errmesg, 'code': errorCode } });
+          document.body.dispatchEvent(evt);
+        }
+      );
+    } else {
         that.easyrtc.connect(that.app, connectSuccess, connectFailure);
-      },
-      function(errorCode, errmesg) {
-        console.error(errorCode, errmesg);
-      }
-    );
+    }
   }
 
   _getRoomJoinTime(clientId) {

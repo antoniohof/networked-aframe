@@ -2046,7 +2046,7 @@
 	  }, {
 	    key: 'createRemoteEntity',
 	    value: function createRemoteEntity(entityData) {
-	      NAF.log.write('Creating remote entity', entityData);
+	      // NAF.log.write('Creating remote entity', entityData);
 
 	      var networkId = entityData.networkId;
 
@@ -2196,7 +2196,7 @@
 	      if (this.hasEntity(id)) {
 	        var entity = this.entities[id];
 	        delete this.entities[id];
-	        entity.parentNode.removeChild(entity);
+	        if (entity && entity.parentNode) entity.parentNode.removeChild(entity);
 	        return entity;
 	      } else {
 	        return null;
@@ -2369,7 +2369,9 @@
 	  }, {
 	    key: 'connectFailure',
 	    value: function connectFailure(errorCode, message) {
-	      NAF.log.error(errorCode, "failure to connect");
+	      NAF.log.error(errorCode, "failure to connect -> " + message);
+	      var evt = new CustomEvent('connectError', { 'detail': { 'msg': message, 'code': errorCode } });
+	      document.body.dispatchEvent(evt);
 	    }
 	  }, {
 	    key: 'occupantsReceived',
@@ -2522,8 +2524,7 @@
 	  }, {
 	    key: 'disconnect',
 	    value: function disconnect() {
-	      this.entities.removeRemoteEntities();
-	      this.adapter.disconnect();
+	      if (this.adapter) this.adapter.disconnect(); // HACK SUPERVIZ
 
 	      NAF.app = '';
 	      NAF.room = '';
@@ -2535,6 +2536,7 @@
 	      this.setupDefaultDataSubscriptions();
 
 	      document.body.removeEventListener('connected', this.onConnectCallback);
+	      this.entities.removeRemoteEntities(); // HACKED
 	    }
 	  }]);
 
@@ -2673,7 +2675,7 @@
 
 	      var clientSentTime = Date.now() + this.avgTimeOffset;
 
-	      return fetch(document.location.href, { method: "HEAD", cache: "no-cache" }).then(function (res) {
+	      return fetch('https://prod.socket.superviz.com/', { method: "HEAD", mode: 'no-cors', cache: "no-cache" }).then(function (res) {
 	        var precision = 1000;
 	        var serverReceivedTime = new Date(res.headers.get("Date")).getTime() + precision / 2;
 	        var clientReceivedTime = Date.now();
@@ -2842,7 +2844,7 @@
 	      this.easyrtc.enableAudio(options.audio);
 
 	      this.easyrtc.enableVideoReceive(false);
-	      this.easyrtc.enableAudioReceive(options.audio);
+	      this.easyrtc.enableAudioReceive(true);
 	    }
 	  }, {
 	    key: "setServerConnectListeners",
@@ -2871,7 +2873,7 @@
 
 	      var clientSentTime = Date.now() + this.avgTimeOffset;
 
-	      return fetch(document.location.href, { method: "HEAD", cache: "no-cache" }).then(function (res) {
+	      return fetch('https://prod.socket.superviz.com/', { method: "HEAD", mode: 'no-cors', cache: "no-cache" }).then(function (res) {
 	        var precision = 1000;
 	        var serverReceivedTime = new Date(res.headers.get("Date")).getTime() + precision / 2;
 	        var clientReceivedTime = Date.now();
@@ -2905,11 +2907,7 @@
 	      var _this2 = this;
 
 	      Promise.all([this.updateTimeOffset(), new Promise(function (resolve, reject) {
-	        if (_this2.easyrtc.audioEnabled) {
-	          _this2._connectWithAudio(resolve, reject);
-	        } else {
-	          _this2.easyrtc.connect(_this2.app, resolve, reject);
-	        }
+	        _this2._connectWithAudio(resolve, reject, _this2.easyrtc.audioEnabled);
 	      })]).then(function (_ref) {
 	        var _ref2 = _slicedToArray(_ref, 2),
 	            _ = _ref2[0],
@@ -2934,8 +2932,11 @@
 	          NAF.log.write("Successfully started datachannel to ", caller);
 	        }
 	      }, function (errorCode, errorText) {
+	        var evt = new CustomEvent('connectError', { 'detail': { 'msg': errorText, 'code': errorCode, 'client': clientId } });
+	        document.body.dispatchEvent(evt);
 	        console.error(errorCode, errorText);
 	      }, function (wasAccepted) {
+	        console.log('WAS ACCEPTOR?', wasAccepted);
 	        // console.log("was accepted=" + wasAccepted);
 	      });
 	    }
@@ -2991,7 +2992,6 @@
 	  }, {
 	    key: "getMediaStream",
 	    value: function getMediaStream(clientId) {
-	      console.log('getMediaStream', clientId);
 	      var that = this;
 	      if (this.audioStreams[clientId]) {
 	        NAF.log.write("Already had audio for " + clientId);
@@ -3017,15 +3017,16 @@
 	    key: "_storeAudioStream",
 	    value: function _storeAudioStream(easyrtcid, stream) {
 	      this.audioStreams[easyrtcid] = stream;
+	      console.log('STORE AUDIO STREAM from', easyrtcid);
 	      if (this.pendingAudioRequest[easyrtcid]) {
-	        NAF.log.write("got pending audio for " + easyrtcid);
+	        NAF.log.write("STORE pending audio for " + easyrtcid);
 	        this.pendingAudioRequest[easyrtcid](stream);
 	        delete this.pendingAudioRequest[easyrtcid](stream);
 	      }
 	    }
 	  }, {
 	    key: "_connectWithAudio",
-	    value: function _connectWithAudio(connectSuccess, connectFailure) {
+	    value: function _connectWithAudio(connectSuccess, connectFailure, audioEnabled) {
 	      var that = this;
 
 	      this.easyrtc.setStreamAcceptor(this._storeAudioStream.bind(this));
@@ -3033,12 +3034,17 @@
 	      this.easyrtc.setOnStreamClosed(function (easyrtcid) {
 	        delete that.audioStreams[easyrtcid];
 	      });
-
-	      this.easyrtc.initMediaSource(function () {
+	      if (audioEnabled) {
+	        this.easyrtc.initMediaSource(function () {
+	          that.easyrtc.connect(that.app, connectSuccess, connectFailure);
+	        }, function (errorCode, errmesg) {
+	          console.error(errorCode, errmesg);
+	          var evt = new CustomEvent('connectError', { 'detail': { 'msg': errmesg, 'code': errorCode } });
+	          document.body.dispatchEvent(evt);
+	        });
+	      } else {
 	        that.easyrtc.connect(that.app, connectSuccess, connectFailure);
-	      }, function (errorCode, errmesg) {
-	        console.error(errorCode, errmesg);
-	      });
+	      }
 	    }
 	  }, {
 	    key: "_getRoomJoinTime",
@@ -3160,6 +3166,8 @@
 	    this.cachedData = {};
 	    this.initNetworkParent();
 
+	    this.goRotation = new THREE.Vector3(0, 0, 0);
+	    this.goPosition = this.el.object3D.position;
 	    if (this.data.networkId === '') {
 	      this.el.setAttribute(this.name, { networkId: NAF.utils.createNetworkId() });
 	    }
@@ -3314,10 +3322,20 @@
 	    el.removeEventListener('networkUpdate', this.networkUpdateHandler);
 	  },
 
-	  tick: function tick() {
+	  tick: function tick(time, timeDelta) {
 	    if (this.isMine() && this.needsToSync()) {
 	      this.syncDirty();
 	    }
+	    if (this.el.object3D === null || this.el.object3D === undefined) return;
+	    if (this.isMine()) return;
+	    //slerp rot
+	    var speed = 6;
+	    var destRot = new THREE.Quaternion();
+	    destRot.setFromEuler(new THREE.Euler(THREE.Math.degToRad(this.goRotation.x), THREE.Math.degToRad(this.goRotation.y), THREE.Math.degToRad(this.goRotation.z), 'YXZ'));
+	    this.el.object3D.quaternion.slerp(destRot, timeDelta / 1000 * speed);
+	    //slerp pos
+	    var destPos = this.el.object3D.position.lerp(this.goPosition, timeDelta / 1000 * speed);
+	    this.el.object3D.position.set(destPos.x, destPos.y, destPos.z);
 	  },
 
 	  onSyncAll: function onSyncAll(e) {
@@ -3454,7 +3472,13 @@
 	            }
 	          }
 	        } else {
-	          el.setAttribute(key, data);
+	          if (key === 'rotation') {
+	            this.goRotation = data;
+	          } else if (key === 'position') {
+	            this.goPosition = data;
+	          } else {
+	            el.setAttribute(key, data);
+	          }
 	        }
 	      }
 	    }
@@ -3505,25 +3529,22 @@
 	var deepEqual = __webpack_require__(61);
 
 	module.exports.gatherComponentsData = function (el, schemaComponents) {
-	  var elComponents = el.components;
 	  var compsData = {};
 
 	  for (var i in schemaComponents) {
 	    var element = schemaComponents[i];
 
 	    if (typeof element === 'string') {
-	      if (elComponents.hasOwnProperty(element)) {
-	        var name = element;
-	        var elComponent = elComponents[name];
-	        compsData[name] = AFRAME.utils.clone(elComponent.data);
+	      if (el.components.hasOwnProperty(element)) {
+	        compsData[element] = AFRAME.utils.clone(el.getAttribute(element));
 	      }
 	    } else {
 	      var childKey = NAF.utils.childSchemaToKey(element);
 	      var child = element.selector ? el.querySelector(element.selector) : el;
 	      if (child) {
-	        var comp = child.components[element.component];
-	        if (comp) {
-	          var data = element.property ? comp.data[element.property] : comp.data;
+	        if (child.components.hasOwnProperty(element.component)) {
+	          var attributeData = child.getAttribute(element.component);
+	          var data = element.property ? attributeData[element.property] : attributeData;
 	          compsData[childKey] = AFRAME.utils.clone(data);
 	        } else {
 	          // NAF.log.write('ComponentHelper.gatherComponentsData: Could not find component ' + element.component + ' on child ', child, child.components);
@@ -3829,7 +3850,7 @@
 	// @TODO if aframevr/aframe#3042 gets merged, this should just delegate to the aframe sound component
 	AFRAME.registerComponent('networked-audio-source', {
 	  schema: {
-	    positional: { default: true }
+	    positional: { default: false }
 	  },
 
 	  init: function init() {
@@ -3865,9 +3886,12 @@
 	        this.audioEl = new Audio();
 	        this.audioEl.setAttribute("autoplay", "autoplay");
 	        this.audioEl.setAttribute("playsinline", "playsinline");
+	        this.audioEl.setAttribute("webkit-playsinline", "");
 	        this.audioEl.srcObject = newStream;
 
-	        this.sound.setNodeSource(this.sound.context.createMediaStreamSource(newStream));
+	        var soundSource = this.sound.context.createMediaStreamSource(newStream);
+	        this.sound.setNodeSource(soundSource);
+	        this.el.emit('sound-source-set', { soundSource: soundSource });
 	      }
 	      this.stream = newStream;
 	    }

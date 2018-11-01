@@ -23,6 +23,8 @@ AFRAME.registerComponent('networked', {
     this.cachedData = {};
     this.initNetworkParent();
 
+    this.goRotation = new THREE.Vector3(0,0,0);
+    this.goPosition = this.el.object3D.position;      
     if (this.data.networkId === '') {
       this.el.setAttribute(this.name, {networkId: NAF.utils.createNetworkId()});
     }
@@ -172,10 +174,20 @@ AFRAME.registerComponent('networked', {
     el.removeEventListener('networkUpdate', this.networkUpdateHandler);
   },
 
-  tick: function() {
+  tick: function(time, timeDelta) {
     if (this.isMine() && this.needsToSync()) {
       this.syncDirty();
     }
+    if (this.el.object3D === null || this.el.object3D === undefined) return;
+    if (this.isMine()) return;
+    //slerp rot
+    var speed = 6;
+    var destRot = new THREE.Quaternion();
+    destRot.setFromEuler(new THREE.Euler(THREE.Math.degToRad(this.goRotation.x), THREE.Math.degToRad(this.goRotation.y), THREE.Math.degToRad(this.goRotation.z), 'YXZ'));
+    this.el.object3D.quaternion.slerp(destRot, (timeDelta / 1000) * speed);
+    //slerp pos
+    var destPos = this.el.object3D.position.lerp(this.goPosition, (timeDelta / 1000) * speed);
+    this.el.object3D.position.set(destPos.x, destPos.y, destPos.z);
   },
 
   onSyncAll: function(e) {
@@ -312,7 +324,13 @@ AFRAME.registerComponent('networked', {
             }
           }
         } else {
-          el.setAttribute(key, data);
+          if (key === 'rotation') {
+            this.goRotation = data;
+          }	else if (key === 'position') {
+            this.goPosition = data;
+          } else {
+            el.setAttribute(key, data);
+          }
         }
       }
     }

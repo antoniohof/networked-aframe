@@ -72,7 +72,9 @@ class NetworkConnection {
   }
 
   connectFailure(errorCode, message) {
-    NAF.log.error(errorCode, "failure to connect");
+    NAF.log.error(errorCode, "failure to connect -> " + message);
+    var evt = new CustomEvent('connectError', { 'detail': { 'msg': message, 'code': errorCode } });
+    document.body.dispatchEvent(evt);
   }
 
   occupantsReceived(occupantList) {
@@ -203,8 +205,7 @@ class NetworkConnection {
   }
 
   disconnect() {
-    this.entities.removeRemoteEntities();
-    this.adapter.disconnect();
+    if (this.adapter) this.adapter.disconnect(); // HACK SUPERVIZ
 
     NAF.app = '';
     NAF.room = '';
@@ -216,6 +217,7 @@ class NetworkConnection {
     this.setupDefaultDataSubscriptions();
 
     document.body.removeEventListener('connected', this.onConnectCallback);
+    this.entities.removeRemoteEntities(); // HACKED
   }
 }
 
